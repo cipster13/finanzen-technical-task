@@ -42,6 +42,7 @@ export function TickerForm({ onSearch, loading }: TickerFormProps) {
           spellCheck={false}
           maxLength={10}
           value={text}
+          disabled={loading}
           onChange={(event) => setText(event.target.value)}
         />
         <button type="submit" disabled={loading || !ticker}>
