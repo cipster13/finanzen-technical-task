@@ -26,3 +26,10 @@ class Summary(BaseModel):
     sentiment: Literal["bullish", "bearish", "neutral", "mixed"] = Field(
         description="Overall tone of the news for the stock."
     )
+
+
+class SummaryResponse(BaseModel):
+    ticker: str
+    summary: Summary | None
+    articles: list[Article]
+    generated_at: datetime
