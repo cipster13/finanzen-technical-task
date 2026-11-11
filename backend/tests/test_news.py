@@ -1,9 +1,12 @@
+import logging
+from datetime import datetime, timezone
+
 import pytest
+
 import app.news as news
-from app.exception import NewsUnavailableError
+from app.exception import NewsUnavailableError, ServiceUnavailableError
 from app.models import Article
 from app.news import NewsProvider, YFinanceProvider, parse_yfinance_article
-import logging
 
 
 def create_raw_article(**overrides) -> dict:
@@ -29,7 +32,7 @@ class FakeTicker:
 def fake_yfinance(monkeypatch):
     requested = []
 
-    def setup(articles=[], error=None):
+    def setup(articles=None, error=None):
         def fake_ticker(ticker):
             requested.append(ticker)
             if error is not None:
@@ -91,9 +94,22 @@ class TestYFinanceProvider:
 
         assert [a.title for a in articles] == ["Good"]
 
-    def test_no_news_returns_empty_list(self, fake_yfinance):
-        fake_yfinance(articles=[])
+    @pytest.mark.parametrize(
+        "raw_news",
+        [pytest.param([], id="empty-list"), pytest.param(None, id="none")],
+    )
+    def test_no_news_returns_empty_list(self, fake_yfinance, raw_news):
+        fake_yfinance(articles=raw_news)
+
         assert YFinanceProvider().fetch("AAPL") == []
+
+
+class TestYFinanceProviderErrors:
+    def test_error_names_the_ticker(self, fake_yfinance):
+        fake_yfinance(error=ConnectionError("network down"))
+
+        with pytest.raises(NewsUnavailableError, match="TSLA"):
+            YFinanceProvider().fetch("TSLA")
 
     def test_original_error_is_kept_as_cause(self, fake_yfinance):
         original = ConnectionError("network down")
@@ -104,6 +120,14 @@ class TestYFinanceProvider:
 
         assert exc_info.value.__cause__ is original
 
+    def test_is_a_service_unavailable_error_with_status_503(self, fake_yfinance):
+        fake_yfinance(error=ConnectionError("network down"))
+
+        with pytest.raises(ServiceUnavailableError) as exc_info:
+            YFinanceProvider().fetch("AAPL")
+
+        assert exc_info.value.status_code == 503
+
 
 class TestParseYFinanceArticle:
     def test_parses_a_complete_article(self):
@@ -113,24 +137,52 @@ class TestParseYFinanceArticle:
         assert article.summary == "Revenue up 8% year over year."
         assert article.url == "https://click.example/apple"
         assert article.publisher == "Reuters"
-        assert article.published_at.year == 2026
+        assert article.published_at == datetime(
+            2026, 11, 9, 14, 30, tzinfo=timezone.utc
+        )
 
-    def test_url_falls_back_to_canonical_url(self):
-        article = parse_yfinance_article(create_raw_article(clickThroughUrl=None))
+    @pytest.mark.parametrize(
+        "click_through",
+        [
+            pytest.param(None, id="none"),
+            pytest.param({}, id="empty"),
+            pytest.param({"url": ""}, id="empty-url"),
+        ],
+    )
+    def test_url_falls_back_to_canonical_url(self, click_through):
+        article = parse_yfinance_article(
+            create_raw_article(clickThroughUrl=click_through)
+        )
+
         assert article.url == "https://canonical.example/apple"
 
-    def test_summary_falls_back_to_description(self):
-        article = parse_yfinance_article(create_raw_article(summary=None))
+    @pytest.mark.parametrize(
+        "summary",
+        [pytest.param(None, id="none"), pytest.param("", id="empty")],
+    )
+    def test_summary_falls_back_to_description(self, summary):
+        article = parse_yfinance_article(create_raw_article(summary=summary))
+
         assert article.summary == "Longer description."
 
     def test_summary_is_none_when_both_missing(self):
         article = parse_yfinance_article(
             create_raw_article(summary="", description=None)
         )
+
         assert article.summary is None
 
-    def test_publisher_defaults_to_unknown(self):
-        article = parse_yfinance_article(create_raw_article(provider=None))
+    @pytest.mark.parametrize(
+        "provider",
+        [
+            pytest.param(None, id="none"),
+            pytest.param({}, id="empty"),
+            pytest.param({"displayName": ""}, id="empty-name"),
+        ],
+    )
+    def test_publisher_defaults_to_unknown(self, provider):
+        article = parse_yfinance_article(create_raw_article(provider=provider))
+
         assert article.publisher == "Unknown"
 
     @pytest.mark.parametrize(
@@ -139,17 +191,20 @@ class TestParseYFinanceArticle:
             pytest.param({}, id="empty-dict"),
             pytest.param({"content": None}, id="content-none"),
             pytest.param(create_raw_article(title=None), id="no-title"),
+            pytest.param(create_raw_article(title=""), id="empty-title"),
             pytest.param(
                 create_raw_article(clickThroughUrl=None, canonicalUrl=None), id="no-url"
             ),
+            pytest.param(create_raw_article(pubDate=None), id="no-date"),
             pytest.param(create_raw_article(pubDate="not a date"), id="bad-date"),
         ],
     )
     def test_invalid_input_returns_none(self, raw):
         assert parse_yfinance_article(raw) is None
 
-    def test_invalid_input_logs_a_warning(self, caplog):
-        with caplog.at_level(logging.WARNING):
+    def test_invalid_input_logs_a_warning_with_the_article_id(self, caplog):
+        with caplog.at_level(logging.WARNING, logger="app.news"):
             parse_yfinance_article(create_raw_article(title=None))
 
         assert "Error while parsing the article" in caplog.text
+        assert "app.news" in caplog.text

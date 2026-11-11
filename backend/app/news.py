@@ -27,8 +27,8 @@ def parse_yfinance_article(raw: dict) -> Article | None:
             published_at=content.get("pubDate"),
         )
     except ValidationError as e:
-        logger.error(
-            "Error while parsing the article %s, with error message %s", raw, e
+        logger.warning(
+            "Error while parsing the article %s, with message %s", content.get("id"), e
         )
         return None
 
@@ -37,9 +37,9 @@ class YFinanceProvider:
 
     def fetch(self, ticker: str) -> list[Article]:
         try:
-            news = yfinance.Ticker(ticker).news
+            news = yfinance.Ticker(ticker).news or []
         except Exception as e:
-            raise NewsUnavailableError from e
+            raise NewsUnavailableError(ticker) from e
 
         articles = [parse_yfinance_article(raw) for raw in news]
         return [article for article in articles if article is not None]
