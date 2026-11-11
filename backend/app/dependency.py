@@ -3,7 +3,7 @@ from .llmclients import LLMClient, OpenAIClient
 from .summarizer import NewsSummarizer
 from typing import Annotated
 from fastapi import Depends
-from .config import Settings, get_settings
+from .config import get_settings
 from functools import lru_cache
 
 
@@ -11,6 +11,7 @@ def get_news_provider() -> NewsProvider:
     return YFinanceProvider()
 
 
+@lru_cache
 def get_llm_client() -> LLMClient:
     settings = get_settings()
     return OpenAIClient(
