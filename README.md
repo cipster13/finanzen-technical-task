@@ -32,7 +32,7 @@ cd backend
 uvicorn app.main:app --reload
 ```
 
-The API runs on http://localhost:8000. Start `uvicorn` from inside `backend/`, or the imports fail.
+Leave this terminal running. The frontend expects the backend on port 8000.
 
 ### 3. Start the frontend
 
@@ -44,7 +44,7 @@ npm install
 npm run dev
 ```
 
-Open http://localhost:5173.
+The app is now running. Open **http://localhost:5173** in your browser, enter a ticker such as `AAPL`, and press **Get brief**. Keep both terminals open while you use it.
 
 ### Optional: run the tests
 
