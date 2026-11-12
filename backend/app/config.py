@@ -1,5 +1,5 @@
 from pathlib import Path
-from pydantic import SecretStr
+from pydantic import SecretStr, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from functools import lru_cache
 
@@ -7,9 +7,11 @@ ENV_FILE = Path(__file__).resolve().parent.parent / ".env"
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=ENV_FILE, extra="ignore")
+    model_config = SettingsConfigDict(
+        env_file=ENV_FILE, extra="ignore", env_ignore_empty=True
+    )
 
-    openai_api_key: SecretStr
+    openai_api_key: SecretStr = Field(min_length=1)
     openai_model: str = "gpt-6-luna"
     openai_timeout: float = 30.0
 
