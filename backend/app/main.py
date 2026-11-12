@@ -3,7 +3,7 @@ from fastapi.responses import JSONResponse
 from .summarizer import NewsSummarizer
 from .news import NewsProvider
 from .models import SummaryResponse
-from .exception import ServiceUnavailableError, NewsUnavailableError
+from .exception import ServiceUnavailableError, LLMAuthenticationError
 import logging
 from .dependency import get_news_provider, get_summarizer
 from typing import Annotated
@@ -47,3 +47,19 @@ async def service_unavailable_handler(request: Request, exc: ServiceUnavailableE
         exc_info=exc,
     )
     return JSONResponse(status_code=exc.status_code, content={"detail": str(exc)})
+
+
+@app.exception_handler(LLMAuthenticationError)
+async def llm_authentication_handler(request: Request, exc: LLMAuthenticationError):
+    logger.critical(
+        "%s while handling %s %s: %s",
+        type(exc).__name__,
+        request.method,
+        request.url.path,
+        exc,
+        exc_info=exc,
+    )
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={"detail": "Something went wrong. Please try again."},
+    )

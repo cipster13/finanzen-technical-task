@@ -5,7 +5,11 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.dependency import get_llm_client, get_news_provider
-from app.exception import NewsUnavailableError, SummaryUnavailableError
+from app.exception import (
+    LLMAuthenticationError,
+    NewsUnavailableError,
+    SummaryUnavailableError,
+)
 from app.main import app
 from app.models import Article, KeyPoint, Summary
 
@@ -219,6 +223,25 @@ class TestGetSummaryErrors:
 
         [record] = [r for r in caplog.records if r.name == "app.main"]
         assert "NewsUnavailableError" in record.getMessage()
+        assert "/news/AAPL/summary" in record.getMessage()
+        assert record.exc_info is not None
+
+    def test_llm_authentication_error_returns_500_and_logs_critical(
+        self, setup_app, caplog
+    ):
+        llm = FakeLLMClient(error=LLMAuthenticationError("OpenAI"))
+        client, _, _ = setup_app(llm=llm)
+
+        with caplog.at_level(logging.CRITICAL, logger="app.main"):
+            response = client.get("/news/AAPL/summary")
+
+        assert response.status_code == 500
+        assert response.json() == {"detail": "Something went wrong. Please try again."}
+        assert "OpenAI" not in response.text
+
+        [record] = [r for r in caplog.records if r.name == "app.main"]
+        assert record.levelno == logging.CRITICAL
+        assert "Authentication with OpenAI failed" in record.getMessage()
         assert "/news/AAPL/summary" in record.getMessage()
         assert record.exc_info is not None
 

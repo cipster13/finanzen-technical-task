@@ -6,7 +6,11 @@ import pytest
 from pydantic import BaseModel
 
 import app.llmclients as llmclients
-from app.exception import ServiceUnavailableError, SummaryUnavailableError
+from app.exception import (
+    LLMAuthenticationError,
+    ServiceUnavailableError,
+    SummaryUnavailableError,
+)
 from app.llmclients import LLMClient, OpenAIClient
 
 
@@ -68,7 +72,11 @@ class TestOpenAIClientSuccess:
 
         create_client()
 
-        assert state["init"] == {"api_key": "test-key", "timeout": 12.0, "max_retries": 2}
+        assert state["init"] == {
+            "api_key": "test-key",
+            "timeout": 12.0,
+            "max_retries": 2,
+        }
 
     def test_returns_the_parsed_object(self, fake_openai):
         fake_openai(result=Answer(text="hello"))
@@ -97,7 +105,6 @@ class TestOpenAIClientErrors:
         [
             pytest.param(openai.APIConnectionError(request=REQUEST), id="connection"),
             pytest.param(openai.APITimeoutError(request=REQUEST), id="timeout"),
-            pytest.param(status_error(openai.AuthenticationError, 401), id="bad-key"),
             pytest.param(status_error(openai.RateLimitError, 429), id="rate-limit"),
             pytest.param(status_error(openai.InternalServerError, 500), id="server"),
         ],
@@ -109,6 +116,17 @@ class TestOpenAIClientErrors:
             create_client().complete("system", "user", Answer)
 
         assert exc_info.value.__cause__ is error
+
+    def test_bad_api_key_raises_llm_authentication_error(self, fake_openai):
+        error = status_error(openai.AuthenticationError, 401)
+        fake_openai(error=error)
+
+        with pytest.raises(LLMAuthenticationError) as exc_info:
+            create_client().complete("system", "user", Answer)
+
+        assert exc_info.value.__cause__ is error
+        assert "OpenAI" in str(exc_info.value)
+        assert not isinstance(exc_info.value, ServiceUnavailableError)
 
     def test_missing_parsed_output_raises_summary_unavailable(self, fake_openai):
         fake_openai(result=None)

@@ -3,7 +3,7 @@ from typing import Protocol, TypeVar, runtime_checkable
 import openai
 from pydantic import BaseModel
 
-from .exception import SummaryUnavailableError
+from .exception import SummaryUnavailableError, LLMAuthenticationError
 import logging
 
 T = TypeVar("T", bound=BaseModel)
@@ -31,6 +31,8 @@ class OpenAIClient:
                 ],
                 text_format=response_model,
             )
+        except openai.AuthenticationError as e:
+            raise LLMAuthenticationError("OpenAI") from e
         except openai.OpenAIError as e:
             raise SummaryUnavailableError from e
 
