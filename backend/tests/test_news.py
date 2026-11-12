@@ -147,6 +147,8 @@ class TestParseYFinanceArticle:
             pytest.param(None, id="none"),
             pytest.param({}, id="empty"),
             pytest.param({"url": ""}, id="empty-url"),
+            pytest.param({"url": None}, id="null-url"),
+            pytest.param("https://wrong.example", id="not-a-dict"),
         ],
     )
     def test_url_falls_back_to_canonical_url(self, click_through):
@@ -178,6 +180,8 @@ class TestParseYFinanceArticle:
             pytest.param(None, id="none"),
             pytest.param({}, id="empty"),
             pytest.param({"displayName": ""}, id="empty-name"),
+            pytest.param({"displayName": None}, id="null-name"),
+            pytest.param("Reuters", id="not-a-dict"),
         ],
     )
     def test_publisher_defaults_to_unknown(self, provider):
@@ -190,6 +194,7 @@ class TestParseYFinanceArticle:
         [
             pytest.param({}, id="empty-dict"),
             pytest.param({"content": None}, id="content-none"),
+            pytest.param({"id": "abc", "content": "oops"}, id="content-not-a-dict"),
             pytest.param(create_raw_article(title=None), id="no-title"),
             pytest.param(create_raw_article(title=""), id="empty-title"),
             pytest.param(
@@ -206,5 +211,14 @@ class TestParseYFinanceArticle:
         with caplog.at_level(logging.WARNING, logger="app.news"):
             parse_yfinance_article(create_raw_article(title=None))
 
-        assert "Error while parsing the article" in caplog.text
-        assert "app.news" in caplog.text
+        [record] = [r for r in caplog.records if r.name == "app.news"]
+        assert record.levelno == logging.WARNING
+        assert record.getMessage() == (
+            "Skipping article abc: invalid fields ['content.title']"
+        )
+
+    def test_invalid_input_without_id_is_logged_as_no_id(self, caplog):
+        with caplog.at_level(logging.WARNING, logger="app.news"):
+            parse_yfinance_article({"content": None})
+
+        assert "Skipping article <no id>" in caplog.text

@@ -1,6 +1,7 @@
 from typing import Protocol, runtime_checkable
-from pydantic import ValidationError
+from pydantic import AliasPath, BaseModel, Field, ValidationError
 from .models import Article
+from datetime import datetime
 import yfinance
 from .exception import NewsUnavailableError
 import logging
@@ -13,22 +14,42 @@ class NewsProvider(Protocol):
     def fetch(self, ticker: str) -> list[Article]: ...
 
 
+def _content(*keys: str) -> AliasPath:
+    return AliasPath("content", *keys)
+
+
+class _YFinanceArticle(BaseModel):
+    title: str = Field(validation_alias=_content("title"))
+    summary: str | None = Field(None, validation_alias=_content("summary"))
+    description: str | None = Field(None, validation_alias=_content("description"))
+    click_through_url: str | None = Field(
+        None, validation_alias=_content("clickThroughUrl", "url")
+    )
+    canonical_url: str | None = Field(
+        None, validation_alias=_content("canonicalUrl", "url")
+    )
+    publisher: str | None = Field(
+        None, validation_alias=_content("provider", "displayName")
+    )
+    published_at: datetime = Field(validation_alias=_content("pubDate"))
+
+
 def parse_yfinance_article(raw: dict) -> Article | None:
-    content = raw.get("content") or {}
-    url = (content.get("clickThroughUrl") or {}).get("url") or (
-        content.get("canonicalUrl") or {}
-    ).get("url")
     try:
+        item = _YFinanceArticle.model_validate(raw)
         return Article(
-            title=content.get("title"),
-            summary=content.get("summary") or content.get("description") or None,
-            url=url,
-            publisher=(content.get("provider") or {}).get("displayName") or "Unknown",
-            published_at=content.get("pubDate"),
+            title=item.title,
+            summary=item.summary or item.description or None,
+            url=item.click_through_url or item.canonical_url,
+            publisher=item.publisher or "Unknown",
+            published_at=item.published_at,
         )
     except ValidationError as e:
+        bad_fields = [".".join(map(str, err["loc"])) for err in e.errors()]
         logger.warning(
-            "Error while parsing the article %s, with message %s", content.get("id"), e
+            "Skipping article %s: invalid fields %s",
+            raw.get("id", "<no id>"),
+            bad_fields,
         )
         return None
 
